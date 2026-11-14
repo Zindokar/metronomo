@@ -1,0 +1,82 @@
+name: Compilar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  windows:
+    name: Escritorio (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Publicar ejecutable
+        run: dotnet publish Metronomo/Metronomo.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Metronomo-Windows
+          path: publish/windows/Metronomo.exe
+
+  android:
+    name: Android
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Instalar workload de Android
+        run: dotnet workload install maui-android
+      - name: Compilar APK
+        run: dotnet build MetronomoMovil/MetronomoMovil.csproj -c Release -f net10.0-android -p:TargetFrameworks=net10.0-android
+      - name: Renombrar APK
+        shell: bash
+        run: cp MetronomoMovil/bin/Release/net10.0-android/*-Signed.apk Metronomo-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Metronomo-Android
+          path: Metronomo-Android.apk
+
+  ios:
+    name: iOS (sin firmar)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Usar el Xcode más reciente
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Instalar workload de iOS
+        run: dotnet workload install maui-ios
+      - name: Compilar para iPhone (sin firma)
+        run: >
+          dotnet build MetronomoMovil/MetronomoMovil.csproj -c Release -f net10.0-ios
+          -p:TargetFrameworks=net10.0-ios -p:RuntimeIdentifier=ios-arm64
+          -p:EnableCodeSigning=false -p:CodesignRequireProvisioningProfile=false
+      - name: Empaquetar .ipa
+        run: |
+          APP=$(find MetronomoMovil/bin/Release/net10.0-ios/ios-arm64 -maxdepth 1 -name "*.app" | head -1)
+          echo "App: $APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qr Metronomo-iOS-sin-firmar.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Metronomo-iOS-sin-firmar
+          path: Metronomo-iOS-sin-firmar.ipa
